@@ -61,7 +61,8 @@ export function validateIncident(incident: Incident): ValidationIssue[] {
     })
   }
 
-  // Timeline order and bounds
+  // Timeline order and bounds.
+  // Events shortly before start are allowed (e.g. the deploy that caused the incident).
   let prev = 0
   incident.timeline.forEach((ev, i) => {
     const t = parse(ev.at)
@@ -69,21 +70,21 @@ export function validateIncident(incident: Incident): ValidationIssue[] {
       issues.push({ path: `timeline[${i}].at`, message: 'Invalid timeline timestamp.', severity: 'error' })
       return
     }
-    if (started !== null && t < started - 60_000) {
+    if (started !== null && t < started - 24 * 60 * 60 * 1000) {
       issues.push({
         path: `timeline[${i}].at`,
-        message: 'Timeline event is more than a minute before incident start.',
+        message: 'Timeline event is more than 24 hours before incident start.',
         severity: 'warning'
       })
     }
-    if (resolved !== null && t > resolved + 60_000) {
+    if (resolved !== null && t > resolved + 60 * 60 * 1000) {
       issues.push({
         path: `timeline[${i}].at`,
-        message: 'Timeline event is after resolution.',
+        message: 'Timeline event is more than an hour after resolution.',
         severity: 'warning'
       })
     }
-    if (t < prev) {
+    if (prev > 0 && t < prev) {
       issues.push({
         path: `timeline[${i}].at`,
         message: 'Timeline events should be in chronological order.',
