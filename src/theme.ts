@@ -9,13 +9,13 @@ export const FONT = {
 
 export const theme = defineTheme({
   colors: {
-    background: "#F6F1E8",
+    background: "#F6F1E8", // warm off-white
     foreground: "#17202C",
-    primary: "#0F1B2D",
+    primary: "#0F1B2D", // deep navy
     primaryForeground: "#F6F1E8",
     muted: "#5E6978",
     border: "#D8D0C2",
-    accent: "#BF4A2F",
+    accent: "#BF4A2F", // muted orange-red
     ok: "#2F6B5A",
   },
   fonts: { body: FONT.serif },
@@ -62,5 +62,6 @@ const files: [string, string, number, "normal" | "italic"][] = [
   ["Inter", "inter-latin-600-normal.woff", 600, "normal"],
 ];
 export const fontFiles = files.map(([family, file, weight, style]) => ({ family, file, weight, style }));
+/** Font faces for a design, pointing at the app's /fonts folder. `origin` is where that folder is served. */
 export const fontFaces = (origin: string): FontFaceDef[] =>
   fontFiles.map((f) => ({ family: f.family, src: `${origin}/fonts/${f.file}`, format: "woff" as const, weight: f.weight, style: f.style }));

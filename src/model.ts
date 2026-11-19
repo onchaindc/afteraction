@@ -18,7 +18,7 @@ export type Incident = {
   commander: string;
   contactEmail: string;
   statusUrl: string;
-  startedAt: string;
+  startedAt: string; // ISO 8601, UTC
   detectedAt: string;
   mitigatedAt: string;
   resolvedAt: string;
@@ -74,98 +74,151 @@ export const sampleIncident: Incident = {
     { id: "a2", title: "Reject timeout values below 2 seconds in the configuration schema", kind: "prevent", owner: "Tomás Reyes", due: "2026-12-03", status: "open" },
     { id: "a3", title: "Alert on authorization error rate above 2% for two minutes", kind: "detect", owner: "Priya Nair", due: "2026-11-24", status: "done" },
     { id: "a4", title: "Write a rollback runbook for gateway configuration", kind: "respond", owner: "Aiko Tanaka", due: "2026-12-10", status: "open" },
+    { id: "a5", title: "Publish a merchant notification template for payment incidents", kind: "respond", owner: "Elena Voss", due: "2026-11-30", status: "in-progress" },
   ],
 };
 
-export type Issue = { level: "error" | "warn"; field: string; message: string };
+// ---------- time helpers (everything is UTC) ----------
+const ms = (iso: string) => Date.parse(iso);
+const valid = (iso: string) => Number.isFinite(ms(iso));
+export const minutesBetween = (a: string, b: string) => Math.round((ms(b) - ms(a)) / 60000);
 
-const parse = (iso: string) => {
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? null : t;
-};
-
-const minutesBetween = (a: string, b: string) => {
-  const x = parse(a);
-  const y = parse(b);
-  if (x === null || y === null) return null;
-  return Math.round((y - x) / 60000);
-};
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const p2 = (n: number) => String(n).padStart(2, "0");
+export function fmtTime(iso: string): string {
+  if (!valid(iso)) return "invalid time";
+  const d = new Date(iso);
+  return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`;
+}
+export function fmtDate(iso: string): string {
+  if (!valid(iso)) return "invalid date";
+  const d = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+export const fmtDateTime = (iso: string) => `${fmtDate(iso)}, ${fmtTime(iso)}`;
+export function fmtDuration(totalMinutes: number): string {
+  if (!Number.isFinite(totalMinutes)) return "unknown";
+  const m = Math.abs(Math.round(totalMinutes));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  const s = h > 0 ? (r > 0 ? `${h}h ${r}m` : `${h}h`) : `${r}m`;
+  return totalMinutes < 0 ? `-${s}` : s;
+}
 
 export function derive(i: Incident) {
-  return {
-    ttd: minutesBetween(i.startedAt, i.detectedAt),
-    ttm: minutesBetween(i.startedAt, i.mitigatedAt),
-    ttr: minutesBetween(i.startedAt, i.resolvedAt),
-    detectToMitigate: minutesBetween(i.detectedAt, i.mitigatedAt),
-    mitigateToResolve: minutesBetween(i.mitigatedAt, i.resolvedAt),
-  };
-}
-
-export function checkIncident(i: Incident, now = new Date()): Issue[] {
-  const issues: Issue[] = [];
-  const push = (level: "error" | "warn", field: string, message: string) => issues.push({ level, field, message });
-
-  if (!i.title.trim()) push("error", "title", "Title is required.");
-  if (!i.summary.trim()) push("error", "summary", "Summary is required.");
-  if (!i.org.trim()) push("error", "org", "Organization is required.");
-
-  const started = parse(i.startedAt);
-  const detected = parse(i.detectedAt);
-  const mitigated = parse(i.mitigatedAt);
-  const resolved = parse(i.resolvedAt);
-
-  if (started === null) push("error", "startedAt", "Invalid start time.");
-  if (detected === null) push("error", "detectedAt", "Invalid detection time.");
-  if (mitigated === null) push("error", "mitigatedAt", "Invalid mitigation time.");
-  if (resolved === null) push("error", "resolvedAt", "Invalid resolution time.");
-
-  if (started !== null && detected !== null && detected < started) push("error", "detectedAt", "Detected before impact started.");
-  if (detected !== null && mitigated !== null && mitigated < detected) push("error", "mitigatedAt", "Mitigated before detected.");
-  if (mitigated !== null && resolved !== null && resolved < mitigated) push("error", "resolvedAt", "Resolved before mitigated.");
-
+  const ttd = minutesBetween(i.startedAt, i.detectedAt);
+  const ttm = minutesBetween(i.startedAt, i.mitigatedAt);
   const ttr = minutesBetween(i.startedAt, i.resolvedAt);
-  if (ttr !== null && i.impact.durationMinutes > 0 && Math.abs(ttr - i.impact.durationMinutes) > 2) {
-    push("error", "impact.durationMinutes", `Stated duration (${i.impact.durationMinutes}m) disagrees with start-to-resolution (${ttr}m).`);
-  }
-
-  i.timeline.forEach((ev, idx) => {
-    const t = parse(ev.at);
-    if (t === null) push("error", `timeline.${idx}.at`, "Invalid timeline timestamp.");
-    if (!ev.text.trim()) push("error", `timeline.${idx}.text`, "Timeline event needs text.");
-    if (ev.kind === "detected" && detected !== null && t !== null && Math.abs(t - detected) > 60000) {
-      push("error", `timeline.${idx}.at`, "Detected event time disagrees with detectedAt.");
-    }
-    if (ev.kind === "mitigated" && mitigated !== null && t !== null && Math.abs(t - mitigated) > 60000) {
-      push("error", `timeline.${idx}.at`, "Mitigated event time disagrees with mitigatedAt.");
-    }
-    if (ev.kind === "resolved" && resolved !== null && t !== null && Math.abs(t - resolved) > 60000) {
-      push("error", `timeline.${idx}.at`, "Resolved event time disagrees with resolvedAt.");
-    }
-  });
-
-  const pctMatch = i.summary.match(/(\d+(?:\.\d+)?)%/);
-  if (pctMatch && Math.abs(Number(pctMatch[1]) - i.impact.percentOfTraffic) > 0.5) {
-    push("warn", "summary", `Summary quotes ${pctMatch[1]}% but impact is ${i.impact.percentOfTraffic}%.");
-  }
-  const minMatch = i.summary.match(/(\d+)\s*minutes?/i);
-  if (minMatch && i.impact.durationMinutes > 0 && Math.abs(Number(minMatch[1]) - i.impact.durationMinutes) > 2) {
-    push("warn", "summary", `Summary quotes ${minMatch[1]} minutes but impact duration is ${i.impact.durationMinutes}m.");
-  }
-
-  if (i.severity === "SEV1" && i.impact.percentOfTraffic < 5) push("warn", "severity", "SEV1 with under 5% impact looks light.");
-  if (i.severity === "SEV3" && i.impact.percentOfTraffic > 20) push("warn", "severity", "SEV3 with over 20% impact looks heavy.");
-
-  if (i.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(i.contactEmail)) push("error", "contactEmail", "Invalid email.");
-  if (i.statusUrl && !/^https?:\/\//i.test(i.statusUrl)) push("error", "statusUrl", "Status URL should start with http(s).");
-
-  i.actions.forEach((a, idx) => {
-    if (!a.title.trim()) push("error", `actions.${idx}.title`, "Action needs a title.");
-    if (!a.owner.trim()) push("warn", `actions.${idx}.owner`, "Action has no owner.");
-    const due = parse(a.due);
-    if (due !== null && a.status !== "done" && due < now.getTime()) push("warn", `actions.${idx}.due`, "Action is overdue.");
-  });
-
-  return issues;
+  return { ttd, ttm, ttr, detectToMitigate: minutesBetween(i.detectedAt, i.mitigatedAt), mitigateToResolve: minutesBetween(i.mitigatedAt, i.resolvedAt) };
 }
 
-export const newId = () => Math.random().toString(36).slice(2, 8);
+export const statusLabel: Record<Status, string> = {
+  investigating: "Investigating",
+  identified: "Identified",
+  monitoring: "Monitoring",
+  resolved: "Resolved",
+};
+export const kindLabel: Record<EventKind, string> = { change: "Change", detected: "Detected", update: "Update", mitigated: "Mitigated", resolved: "Resolved" };
+export const actionKindLabel: Record<ActionKind, string> = { prevent: "Prevent", detect: "Detect", respond: "Respond" };
+export const actionStatusLabel: Record<ActionStatus, string> = { open: "Open", "in-progress": "In progress", done: "Done" };
+
+// ---------- consistency engine ----------
+export type Issue = { level: "error" | "warn"; field: string; message: string };
+
+const URL_OK = /^https?:\/\/[^\s]+$/i;
+const MAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function checkIncident(i: Incident, now: Date = new Date()): Issue[] {
+  const out: Issue[] = [];
+  const err = (field: string, message: string) => out.push({ level: "error", field, message });
+  const warn = (field: string, message: string) => out.push({ level: "warn", field, message });
+
+  // required details
+  if (!i.title.trim()) err("title", "Title is required.");
+  if (!i.id.trim()) err("id", "Incident ID is required.");
+  if (!i.org.trim()) err("org", "Organisation is required.");
+  if (!i.commander.trim()) warn("commander", "No incident commander named.");
+  if (!MAIL_OK.test(i.contactEmail)) err("contactEmail", "Contact email is not a valid address.");
+  if (!URL_OK.test(i.statusUrl)) err("statusUrl", "Status URL must start with http:// or https://.");
+  if (!i.summary.trim()) err("summary", "Summary is required.");
+  if (!i.rootCause.trim()) err("rootCause", "Root cause is required.");
+
+  // the four anchor times
+  const anchors: [keyof Incident, string][] = [
+    ["startedAt", "Started"],
+    ["detectedAt", "Detected"],
+    ["mitigatedAt", "Mitigated"],
+    ["resolvedAt", "Resolved"],
+  ];
+  let allValid = true;
+  for (const [k, label] of anchors) {
+    if (!valid(i[k] as string)) {
+      err(k, `${label} time is not a valid date and time.`);
+      allValid = false;
+    }
+  }
+  if (allValid) {
+    if (ms(i.detectedAt) < ms(i.startedAt)) err("detectedAt", "Detected before the incident started.");
+    if (ms(i.mitigatedAt) < ms(i.detectedAt)) err("mitigatedAt", "Mitigated before it was detected.");
+    if (ms(i.resolvedAt) < ms(i.mitigatedAt)) err("resolvedAt", "Resolved before it was mitigated.");
+
+    const computed = minutesBetween(i.startedAt, i.resolvedAt);
+    if (Math.abs(computed - i.impact.durationMinutes) > 1)
+      err("impact.durationMinutes", `Stated duration is ${i.impact.durationMinutes} min but start to resolution is ${computed} min (${fmtDuration(computed)}).`);
+
+    if (i.status === "resolved" && ms(i.resolvedAt) > now.getTime()) warn("resolvedAt", "Marked resolved, but the resolved time is in the future.");
+    if (i.status !== "resolved" && ms(i.resolvedAt) <= now.getTime())
+      warn("status", `Status is "${statusLabel[i.status]}" but a resolved time in the past is set.`);
+  }
+
+  // impact
+  if (i.impact.percentOfTraffic < 0 || i.impact.percentOfTraffic > 100) err("impact.percentOfTraffic", "Traffic affected must be between 0 and 100.");
+  if (i.impact.usersAffected < 0) err("impact.usersAffected", "Users affected cannot be negative.");
+  if (i.severity === "SEV1" && i.impact.percentOfTraffic < 5) warn("severity", "SEV1 with under 5% of traffic affected. Check the severity.");
+  if (i.severity === "SEV3" && i.impact.percentOfTraffic > 25) warn("severity", "SEV3 with over 25% of traffic affected. Check the severity.");
+
+  // the narrative must agree with the numbers
+  const pcts = [...i.summary.matchAll(/(\d+(?:\.\d+)?)\s?%/g)].map((m) => Number(m[1]));
+  if (pcts.length > 0 && !pcts.includes(i.impact.percentOfTraffic))
+    warn("summary", `Summary says ${pcts.join("%, ")}% but impact says ${i.impact.percentOfTraffic}% of traffic.`);
+  const mins = [...i.summary.matchAll(/(\d+)\s?minutes?/gi)].map((m) => Number(m[1]));
+  if (mins.length > 0 && !mins.includes(i.impact.durationMinutes))
+    warn("summary", `Summary mentions ${mins.join(", ")} minutes but the stated duration is ${i.impact.durationMinutes}.`);
+  if (i.services.length === 0) warn("services", "No affected services listed.");
+
+  // timeline
+  if (i.timeline.length === 0) err("timeline", "The timeline is empty.");
+  const T = i.timeline;
+  T.forEach((e, n) => {
+    const f = `timeline.${n}.at`;
+    if (!valid(e.at)) return err(f, "Event time is not a valid date and time.");
+    if (!e.text.trim()) warn(`timeline.${n}.text`, "Event has no description.");
+    if (n > 0 && valid(T[n - 1].at) && ms(e.at) < ms(T[n - 1].at)) warn(f, "Out of order: earlier than the event above it.");
+    if (allValid && e.kind !== "change" && ms(e.at) < ms(i.startedAt)) warn(f, "Happens before the incident started.");
+    if (allValid && ms(e.at) > ms(i.resolvedAt) + 60000) warn(f, "Happens after the resolved time.");
+  });
+  const anchorEvent = (kind: EventKind, field: keyof Incident, label: string) => {
+    const idx = T.findIndex((e) => e.kind === kind);
+    if (idx === -1) return warn("timeline", `No "${kindLabel[kind]}" event in the timeline.`);
+    if (valid(T[idx].at) && valid(i[field] as string) && Math.abs(minutesBetween(T[idx].at, i[field] as string)) > 1)
+      err(`timeline.${idx}.at`, `${label} event is at ${fmtTime(T[idx].at)} but the ${label.toLowerCase()} time is ${fmtTime(i[field] as string)}.`);
+  };
+  anchorEvent("detected", "detectedAt", "Detected");
+  anchorEvent("mitigated", "mitigatedAt", "Mitigated");
+  anchorEvent("resolved", "resolvedAt", "Resolved");
+
+  // corrective actions
+  if (i.actions.length === 0) warn("actions", "No corrective actions yet.");
+  else if (!i.actions.some((a) => a.kind === "prevent")) warn("actions", "No action prevents a repeat. Add at least one Prevent action.");
+  i.actions.forEach((a, n) => {
+    if (!a.title.trim()) warn(`actions.${n}.title`, "Action has no title.");
+    if (!a.owner.trim()) warn(`actions.${n}.owner`, "Action has no owner.");
+    if (!valid(`${a.due}T00:00:00Z`)) return err(`actions.${n}.due`, "Due date is not valid.");
+    if (valid(i.startedAt) && ms(`${a.due}T00:00:00Z`) < ms(i.startedAt) - 86400000) warn(`actions.${n}.due`, "Due before the incident started.");
+    if (a.status !== "done" && ms(`${a.due}T23:59:59Z`) < now.getTime()) warn(`actions.${n}.due`, "Overdue and not done.");
+  });
+
+  return out;
+}
+
+export const uid = () => Math.random().toString(36).slice(2, 8);
