@@ -66,7 +66,7 @@ Use **Save JSON** in the app to get an incident file, then export it from the co
 
 - **No backend and no sign in.** State is saved in your browser's local storage. PDF and PNG downloads use the local dev server, so `npm run build` gives a static app where previews and HTML downloads work but PDF and PNG downloads need `npm run dev`.
 - **Sample data only.** Larkspur Pay and everyone named in the sample are fictional.
-- **Fonts** are Source Serif 4, Inter and IBM Plex Mono, all SIL Open Font License, bundled in `public/fonts`.
+- **Fonts** are Source Serif 4, Inter and IBM Plex Mono (SIL Open Font License). `npm install` copies them from the `@fontsource` packages into `public/fonts`, so the repository holds no binary font files.
 - The consistency checks catch the common contradictions. They cannot know whether the facts are true.
 
 MIT licensed.
