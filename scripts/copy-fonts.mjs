@@ -1,41 +1,27 @@
-import { copyFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+// Copies the three font families from their @fontsource packages into public/fonts.
+// Runs after `npm install`, so the repository itself holds no binary font files.
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 
-const require = createRequire(import.meta.url);
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const outDir = join(root, "public", "fonts");
-mkdirSync(outDir, { recursive: true });
-
-const packages = [
-  { pkg: "@fontsource/source-serif-4", files: ["source-serif-4-latin-400-normal.woff", "source-serif-4-latin-400-italic.woff", "source-serif-4-latin-700-normal.woff"] },
-  { pkg: "@fontsource/inter", files: ["inter-latin-500-normal.woff", "inter-latin-600-normal.woff"] },
-  { pkg: "@fontsource/ibm-plex-mono", files: ["ibm-plex-mono-latin-400-normal.woff", "ibm-plex-mono-latin-500-normal.woff"] },
+const files = [
+  ["source-serif-4", "source-serif-4-latin-400-normal.woff"],
+  ["source-serif-4", "source-serif-4-latin-400-italic.woff"],
+  ["source-serif-4", "source-serif-4-latin-700-normal.woff"],
+  ["ibm-plex-mono", "ibm-plex-mono-latin-400-normal.woff"],
+  ["ibm-plex-mono", "ibm-plex-mono-latin-500-normal.woff"],
+  ["inter", "inter-latin-500-normal.woff"],
+  ["inter", "inter-latin-600-normal.woff"],
 ];
-
-for (const { pkg, files } of packages) {
-  let pkgRoot;
-  try {
-    pkgRoot = dirname(require.resolve(`${pkg}/package.json`));
-  } catch {
-    console.warn(`[copy-fonts] ${pkg} not installed yet; skip`);
-    continue;
+const out = resolve("public/fonts");
+mkdirSync(out, { recursive: true });
+let copied = 0;
+for (const [pkg, file] of files) {
+  const from = resolve("node_modules/@fontsource", pkg, "files", file);
+  if (!existsSync(from)) {
+    console.error(`copy-fonts: missing ${from}. Run npm install first.`);
+    process.exit(1);
   }
-  const filesDir = join(pkgRoot, "files");
-  for (const file of files) {
-    const src = join(filesDir, file);
-    if (!existsSync(src)) {
-      // some packages nest under latin/
-      const alt = readdirSync(filesDir, { recursive: true }).map(String).find((f) => f.endsWith(file));
-      if (!alt) {
-        console.warn(`[copy-fonts] missing ${file}`);
-        continue;
-      }
-      copyFileSync(join(filesDir, alt), join(outDir, file));
-    } else {
-      copyFileSync(src, join(outDir, file));
-    }
-  }
+  copyFileSync(from, resolve(out, file));
+  copied++;
 }
-console.log("[copy-fonts] fonts ready in public/fonts");
+console.log(`copy-fonts: ${copied} font files ready in public/fonts`);

@@ -1,5 +1,4 @@
 // npm run export [incident.json] [outDir]
-// Writes all four outputs for an incident. Exits 1 if the incident has conflicting data.
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { checkIncident, sampleIncident, type Incident } from "../src/model";
@@ -23,7 +22,6 @@ if (errors > 0 && !force) {
 await mkdir(resolve(outDir, "fonts"), { recursive: true });
 for (const f of fontFiles) await copyFile(resolve("public/fonts", f.file), resolve(outDir, "fonts", f.file));
 
-// "." makes the font URLs relative, so the HTML files work when opened straight from disk.
 const page = await exportHtml("page", incident, ".");
 const email = await exportHtml("email", incident, ".");
 const pdf = await exportPdf(incident, ".");
